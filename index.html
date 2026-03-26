@@ -1,910 +1,635 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  User, Users, List, QrCode, FileText, CheckCircle, 
-  ArrowLeft, Search, Save, LayoutDashboard, ChevronRight, Lock,
-  Edit, Trash2, X, Settings, Key
-} from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc } from 'firebase/firestore';
-
-// --- 클라우드 데이터베이스(Firebase) 초기화 ---
-let app, auth, db, appId;
-try {
-  const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-  appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-} catch (error) {
-  console.error("클라우드 초기화 오류:", error);
-}
-
-// --- 데이터 스키마 및 문항 정의 ---
-const FORM_FIELDS = [
-  { id: 'sNum', label: '학번', category: '인적사항', placeholder: '예: 1학년 3반 15번', type: 'text' },
-  { id: 'name', label: '이름', category: '인적사항', placeholder: '홍길동', type: 'text' },
-  { id: 'contact', label: '내 연락처 (휴대폰)', category: '인적사항', placeholder: '010-0000-0000', type: 'text' },
-  { id: 'emergency', label: '비상시 연락처 (부모님)', category: '인적사항', placeholder: '010-0000-0000 (어머니)', type: 'text' },
-  { id: 'friends', label: '가장 친한 친구', category: '인적사항', placeholder: '우리 반: OOO, 다른 반: OOO', type: 'text' },
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>온라인 학생 자기소개서</title>
   
-  { id: 'family', label: '가족 관계 및 가정 분위기', category: '가정환경', placeholder: '가족 구성원, 부모님과의 친밀도, 집안 분위기 등을 자유롭게 적어주세요.', type: 'textarea' },
-  { id: 'economy', label: '경제적 형편', category: '가정환경', placeholder: '솔직하게 적어주세요. 학비/급식 지원 필요 여부 등 (비밀 보장)', type: 'textarea' },
+  <!-- 스타일 (Tailwind CSS) -->
+  <script src="https://cdn.tailwindcss.com"></script>
   
-  { id: 'routine', label: '나의 하루 일과', category: '생활습관', placeholder: '아침/점심 식사 여부, 통학 방법 및 시간, 방과 후 학원, 수면 시간 등', type: 'textarea' },
-  { id: 'health', label: '건강 상태', category: '생활습관', placeholder: '수업 받기 곤란한 부분이나 앓고 있는 질환이 있다면 자세히 적어주세요.', type: 'textarea' },
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   
-  { id: 'favoritePerson', label: '가장 좋아하는 사람과 이유', category: '가치관', placeholder: '연예인, 가족, 친구 등 누구든 좋습니다.', type: 'textarea' },
-  { id: 'subjects', label: '좋아하는/싫어하는 과목과 이유', category: '가치관', placeholder: '좋아하는 과목: OO (이유), 싫어하는 과목: OO (이유)', type: 'textarea' },
-  
-  { id: 'strengths', label: '남보다 잘할 수 있는 것 (장점)', category: '자기이해', placeholder: '본인의 특기나 장점을 자랑해주세요!', type: 'textarea' },
-  { id: 'weaknesses', label: '정말 고치고 싶은 점 (단점)', category: '자기이해', placeholder: '이것만은 고치고 싶다 하는 부분이 있나요?', type: 'textarea' },
-  { id: 'interests', label: '요즘 가장 관심 있는 일', category: '자기이해', placeholder: '하고 있으면 기분 좋은 일, 취미 등', type: 'textarea' },
-  { id: 'future', label: '장래 희망과 이유 (계획)', category: '진로', placeholder: '나의 희망 직업과 부모님이 바라시는 직업', type: 'textarea' },
-  
-  { id: 'toTeacher', label: '선생님께 바라는 점 / 첫인상', category: '소통', placeholder: '담임 선생님의 첫인상, 우리 반이 이랬으면 좋겠다 등', type: 'textarea' },
-  { id: 'secret', label: '선생님께만 털어놓는 비밀 고민', category: '소통', placeholder: '쉿, 비밀은 꼭 지켜줄게요. 편하게 적어주세요.', type: 'textarea' },
-];
+  <!-- JSX 변환용 Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-// --- 테스트용 임시 데이터 (선생님이 바로 기능을 확인하실 수 있도록) ---
-const MOCK_STUDENTS = [
-  {
-    id: 1, sNum: '1학년 1반 1번', name: '김민준', contact: '010-1111-2222', emergency: '010-1234-5678 (어머니)', friends: '우리반: 이서준 / 다른반: 박지호',
-    family: '부모님과 여동생이 있습니다. 화목한 편이며 주말마다 외식을 자주 합니다.', economy: '보통입니다. 작년에 지원 받은 적 없습니다.',
-    routine: '아침은 주로 안 먹고, 버스로 20분 걸려요. 방과후에는 영어학원에 갔다가 밤 12시에 잡니다.', health: '아주 건강합니다.',
-    favoritePerson: '유재석 님. 항상 긍정적이고 남을 배려하는 모습이 멋있습니다.', subjects: '체육이 좋고(뛰어노는게 좋아서), 수학이 싫어요(너무 어려워요).',
-    strengths: '친구들의 이야기를 잘 들어주고 분위기를 밝게 만듭니다.', weaknesses: '아침에 일찍 일어나는 것을 너무 힘들어합니다.',
-    interests: '요즘 축구와 게임에 빠져있습니다.', future: '스포츠 마케터가 되고 싶습니다.', toTeacher: '재미있는 반을 만들어주세요!', secret: '최근에 친한 친구랑 싸워서 조금 어색합니다.'
-  },
-  {
-    id: 2, sNum: '1학년 1반 2번', name: '이서연', contact: '010-3333-4444', emergency: '010-8765-4321 (아버지)', friends: '최지윤(3반)',
-    family: '할머니, 부모님과 함께 삽니다. 아빠랑 특히 친해요.', economy: '조금 빠듯한 편이라 급식 지원을 받으면 좋겠습니다.',
-    routine: '아침 챙겨먹고 걸어서 10분. 학원은 안다니고 집에서 인터넷 강의 들어요.', health: '비염이 심해서 환절기에는 수업시간에 훌쩍거릴 수 있습니다. 죄송해요 ㅠㅠ',
-    favoritePerson: '엄마. 저를 항상 믿어주십니다.', subjects: '미술이 좋아요(그림 그리는게 재밌음), 체육은 싫어요(힘들어서).',
-    strengths: '그림을 꽤 잘 그리고 꼼꼼한 성격입니다.', weaknesses: '걱정이 너무 많아서 스트레스를 잘 받아요.',
-    interests: '웹툰 그리기와 음악 감상', future: '웹툰 작가가 되고 싶은데, 부모님은 공무원을 원하십니다.', toTeacher: '다정하게 대해주세요.', secret: '성적 압박감이 너무 심해서 밤에 잠이 잘 안 옵니다.'
-  }
-];
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .smooth-scroll { -webkit-overflow-scrolling: touch; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+  <div id="root"></div>
 
-export default function App() {
-  const [view, setView] = useState('select'); // 'select', 'student', 'teacher', 'thankyou'
-  const [students, setStudents] = useState([]);
-  const [user, setUser] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [teacherPin, setTeacherPin] = useState('1234'); // 선생님 비밀번호 상태 추가
+  <!-- Firebase 모듈 설정 -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
-  // 현재 URL을 가져와서 QR 코드에 사용 (실제 호스팅 시 해당 URL로 연결됨)
-  const currentUrl = typeof window !== 'undefined' ? window.location.href : 'https://example.com';
-
-  // 1. 보안 인증 및 초기화 (최초 1회)
-  useEffect(() => {
-    if (!auth) return;
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("인증 실패:", error);
-      }
+    window.firebase = {
+      initializeApp, getAuth, signInAnonymously, onAuthStateChanged,
+      getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, setDoc
     };
-    initAuth();
+  </script>
 
-    const unsubscribe = onAuthStateChanged(auth, setUser);
-    return () => unsubscribe();
-  }, []);
+  <!-- React 앱 코드 (JSX) -->
+  <script type="text/babel">
+    const { useState, useEffect } = React;
 
-  // 2. 실시간 데이터베이스 연동 (선생님 확인용)
-  useEffect(() => {
-    if (!user || !db) return;
-    
-    // 학생 데이터 불러오기
-    const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'student_introductions');
-    const unsubscribe = onSnapshot(colRef, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // 학번 순으로 자동 정렬
-      data.sort((a, b) => (a.sNum || '').localeCompare(b.sNum || ''));
-      setStudents(data);
-    }, (error) => {
-      console.error("데이터 불러오기 오류: ", error);
-    });
-
-    // 선생님 비밀번호 설정 불러오기
-    const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_settings');
-    const unsubSettings = onSnapshot(settingsRef, (docSnap) => {
-      if (docSnap.exists() && docSnap.data().pin) {
-        setTeacherPin(docSnap.data().pin);
-      }
-    });
-    
-    return () => {
-      unsubscribe();
-      unsubSettings();
+    // ==========================================
+    // 💡 [선생님 필수 수정 영역] 💡
+    // 아래 firebaseConfig의 내용({ ... } 안의 부분)을 
+    // 선생님의 Firebase 프로젝트 설정값으로 교체해주세요!
+    // ==========================================
+    const firebaseConfig = {
+      apiKey: "AIzaSyDJn9xK5-G24FwEb0WS6ee_F1tGSHDiMck",
+      authDomain: "myclassintro-6f655.firebaseapp.com",
+      projectId: "myclassintro-6f655",
+      storageBucket: "myclassintro-6f655.firebasestorage.app",
+      messagingSenderId: "259672650671",
+      appId: "1:259672650671:web:f3cdb2695062229c89f55a"
     };
-  }, [user]);
 
-  // 3. 학생 데이터 클라우드 저장 로직
-  const handleStudentSubmit = async (data) => {
-    if (!user || !db) return;
-    setIsSubmitting(true);
+    // --- Firebase 초기화 ---
+    let app, auth, db;
     try {
-      const colRef = collection(db, 'artifacts', appId, 'public', 'data', 'student_introductions');
-      await addDoc(colRef, {
-        ...data,
-        createdAt: Date.now(),
-        userId: user.uid
-      });
-      setView('thankyou');
+      if (firebaseConfig.apiKey !== "여기에_선생님의_API_KEY를_넣으세요") {
+        app = window.firebase.initializeApp(firebaseConfig);
+        auth = window.firebase.getAuth(app);
+        db = window.firebase.getFirestore(app);
+      }
     } catch (error) {
-      console.error("저장 중 오류 발생", error);
-    } finally {
-      setIsSubmitting(false);
+      console.error("Firebase 초기화 오류:", error);
     }
-  };
 
-  if (!user) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-500 font-sans">
-        <div className="flex flex-col items-center">
-          <div className="w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
-          서버에 연결 중입니다...
-        </div>
-      </div>
-    );
-  }
+    // 연락처 자동 포맷 함수
+    const formatPhoneNumberDisplay = (text) => {
+      if (typeof text !== 'string') return text;
+      if (!text) return "";
+      const phoneRegex = /(01[016789])[- .]?([0-9]{3,4})[- .]?([0-9]{4})/g;
+      return text.replace(phoneRegex, (match, p1, p2, p3) => `${p1}-${p2}-${p3} / ${p1}${p2}${p3}`);
+    };
 
-  return (
-    <div className="min-h-screen bg-gray-50 text-gray-800 font-sans">
-      {/* 화면 전환 라우터 역할 */}
-      {view === 'select' && <RoleSelection setView={setView} teacherPin={teacherPin} />}
-      {view === 'student' && <StudentForm onSubmit={handleStudentSubmit} onBack={() => setView('select')} isSubmitting={isSubmitting} />}
-      {view === 'thankyou' && <ThankYouView onHome={() => setView('select')} />}
-      {view === 'teacher' && <TeacherDashboard students={students} onBack={() => setView('select')} currentUrl={currentUrl} />}
-    </div>
-  );
-}
+    const formatEmergencyContact = (text, studentName) => {
+      if (typeof text !== 'string' || !text) return "";
+      let formatted = formatPhoneNumberDisplay(text);
+      if (studentName && !formatted.includes(studentName)) {
+        formatted = formatted.replace(/(어머니|엄마|아버지|아빠|할머니|할아버지|형|누나|오빠|언니)/g, `${studentName} $1`);
+      }
+      return formatted;
+    };
 
-// ==========================================
-// 1. 역할 선택 화면 (초기 화면)
-// ==========================================
-function RoleSelection({ setView, teacherPin }) {
-  const [showPinModal, setShowPinModal] = useState(false);
-  const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState('');
+    const extractPhoneAndText = (text, studentName) => {
+      if (typeof text !== 'string' || !text) return { phoneHyphen: "미작성", phoneNoHyphen: "미작성", relation: "" };
+      const phoneRegex = /(01[016789])[- .]?([0-9]{3,4})[- .]?([0-9]{4})/g;
+      let hyphenArr = [], noHyphenArr = [];
+      let textPart = text.replace(phoneRegex, (match, p1, p2, p3) => {
+        hyphenArr.push(`${p1}-${p2}-${p3}`);
+        noHyphenArr.push(`${p1}${p2}${p3}`);
+        return '';
+      });
+      let relationStr = textPart.replace(/[()\[\]]/g, '').trim();
+      if (studentName && relationStr) {
+        relationStr = relationStr.replace(/(어머니|엄마|아버지|아빠|할머니|할아버지|형|누나|오빠|언니)/g, `${studentName} $1`);
+      }
+      return { 
+        phoneHyphen: hyphenArr.length > 0 ? hyphenArr.join(', ') : "번호 없음", 
+        phoneNoHyphen: noHyphenArr.length > 0 ? noHyphenArr.join(', ') : "번호 없음", 
+        relation: relationStr 
+      };
+    };
 
-  const handleTeacherLogin = (e) => {
-    e.preventDefault();
-    if (pin === teacherPin) { // 설정된 비밀번호와 비교
-      setView('teacher');
-    } else {
-      setPinError('비밀번호가 일치하지 않습니다.');
-    }
-  };
+    // --- 고등학교 신입생 맞춤형 문항 스키마 ---
+    const FORM_FIELDS = [
+      { id: 'name', label: '이름', category: '인적사항', placeholder: '홍길동', type: 'text' },
+      { id: 'contact', label: '내 연락처 (휴대폰)', category: '인적사항', placeholder: '010-0000-0000', type: 'text' },
+      { id: 'emergency', label: '보호자 연락처 (비상연락망)', category: '인적사항', placeholder: '010-0000-0000 (어머니)', type: 'text' },
+      { id: 'friends', label: '교우 관계 (희망 짝꿍 / 피하고 싶은 친구)', category: '인적사항', placeholder: '우리 반에 친한 친구가 있는지, 혹은 꼭 떨어져 앉고 싶은 친구가 있다면 살짝 적어주세요. (비밀보장)', type: 'textarea' },
+      { id: 'family', label: '가족 관계 및 가정 분위기', category: '가정환경', placeholder: '가족 구성원, 부모님과의 친밀도, 집안 분위기 등을 자유롭게 적어주세요.', type: 'textarea' },
+      { id: 'support', label: '학교 생활 지원 필요 여부', category: '가정환경', placeholder: '학교 생활과 관련하여 선생님의 특별한 배려나 지원(건강, 학습, 기타 등)이 필요한 부분이 있다면 편하게 적어주세요.', type: 'textarea' },
+      { id: 'mbti', label: '나의 MBTI와 실제 성격', category: '자기이해', placeholder: 'MBTI가 무엇인가요? 본인이 생각하는 실제 성격과 비슷한가요?', type: 'text' },
+      { id: 'strengths', label: '남보다 잘할 수 있는 것 (장점)', category: '자기이해', placeholder: '본인의 특기나 장점, 자랑거리를 적어주세요!', type: 'textarea' },
+      { id: 'weaknesses', label: '정말 고치고 싶은 점 / 나의 고민', category: '자기이해', placeholder: '이것만은 고치고 싶다 하는 부분이나 요즘 가장 큰 고민은 무엇인가요?', type: 'textarea' },
+      { id: 'health', label: '건강 상태 및 알레르기', category: '생활습관', placeholder: '수업 중 배려가 필요한 질환이나 급식 알레르기가 있다면 꼭 적어주세요.', type: 'textarea' },
+      { id: 'study', label: '방과 후 학습 계획', category: '생활습관', placeholder: '하교 후 주로 어디서 공부하나요? (학원, 과외, 인강, 스터디카페, 야간자율학습 등)', type: 'textarea' },
+      { id: 'club', label: '관심 있는 동아리 및 활동', category: '진로 및 학업', placeholder: '고등학교에서 가입하고 싶은 동아리나 관심 있는 활동 분야가 있나요?', type: 'textarea' },
+      { id: 'future', label: '장래 희망과 희망 전공', category: '진로 및 학업', placeholder: '현재 생각하고 있는 희망 직업이나 대학교 전공이 있다면 적어주세요.', type: 'textarea' },
+      { id: 'subjects', label: '좋아하는 / 어려워하는 과목', category: '진로 및 학업', placeholder: '좋아하는 과목과 이유, 특히 어려워하는 과목을 적어주세요.', type: 'textarea' },
+      { id: 'toTeacher', label: '선생님께 바라는 점 / 기대하는 점', category: '소통', placeholder: '올해 우리 반이 이런 반이 되었으면 좋겠다, 담임 선생님께 바라는 점 등', type: 'textarea' },
+      { id: 'secret', label: '선생님께만 털어놓는 비밀 이야기', category: '소통', placeholder: '선생님이 꼭 알았으면 하는 내용이나 개인적인 사정 (절대 비밀 보장)', type: 'textarea' }
+    ];
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-4 py-12 relative">
-      <div className="text-center mb-12">
-        <h1 className="text-3xl font-bold text-indigo-700 mb-4">온라인 자기소개서</h1>
-        <p className="text-gray-500">원하시는 메뉴를 선택해주세요.</p>
-        <div className="mt-4 inline-flex items-center px-4 py-2 bg-blue-50 text-blue-700 border border-blue-100 rounded-full text-sm font-medium shadow-sm">
-          🌍 스마트폰, PC, 해외 어디서든 인터넷만 있으면 접속 및 제출이 가능합니다.
-        </div>
-      </div>
+    const CATEGORIES = ['인적사항', '가정환경', '자기이해', '생활습관', '진로 및 학업', '소통'];
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full max-w-2xl">
-        <button 
-          onClick={() => setView('student')}
-          className="flex flex-col items-center justify-center p-10 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-400 hover:shadow-md transition-all group"
-        >
-          <div className="w-20 h-20 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-            <User size={40} />
-          </div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">학생입니다</h2>
-          <p className="text-sm text-gray-500 text-center">나의 자기소개서를<br/>작성하고 제출합니다.</p>
-        </button>
+    // 메인 앱 컴포넌트
+    function App() {
+      const [view, setView] = useState('select');
+      const [students, setStudents] = useState([]);
+      const [user, setUser] = useState(null);
+      const [isSubmitting, setIsSubmitting] = useState(false);
+      
+      const [teacherPin, setTeacherPin] = useState('1234');
+      const [subTeacherPin, setSubTeacherPin] = useState('');
+      const [isConfigError, setIsConfigError] = useState(false);
 
-        <button 
-          onClick={() => setShowPinModal(true)}
-          className="flex flex-col items-center justify-center p-10 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-emerald-400 hover:shadow-md transition-all group"
-        >
-          <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
-            <LayoutDashboard size={40} />
-          </div>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">선생님입니다</h2>
-          <p className="text-sm text-gray-500 text-center">학생들의 제출 내역을<br/>확인하고 관리합니다.</p>
-        </button>
-      </div>
+      const currentUrl = typeof window !== 'undefined' ? window.location.href : 'https://example.com';
 
-      {/* 선생님 보안용 비밀번호 입력 모달 */}
-      {showPinModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm p-8 animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-center w-14 h-14 bg-emerald-100 text-emerald-600 rounded-full mb-6 mx-auto">
-              <Lock size={28} />
+      useEffect(() => {
+        if (!auth) {
+          if (firebaseConfig.apiKey === "여기에_선생님의_API_KEY를_넣으세요") setIsConfigError(true);
+          return;
+        }
+        window.firebase.signInAnonymously(auth).catch((error) => {
+          if (error.code === 'auth/configuration-not-found' || error.code === 'auth/operation-not-allowed') {
+            alert("🚨 파이어베이스 콘솔에서 '익명 로그인'을 켜주세요!");
+          }
+        });
+        const unsubscribe = window.firebase.onAuthStateChanged(auth, setUser);
+        return () => unsubscribe();
+      }, []);
+
+      useEffect(() => {
+        if (!user || !db) return;
+        
+        const colRef = window.firebase.collection(db, 'student_introductions');
+        const unsubscribe = window.firebase.onSnapshot(colRef, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          setStudents(data);
+        }, (error) => {
+          if (error.code === 'permission-denied') alert("데이터베이스 접근 권한이 막혀있습니다! 파이어베이스 규칙을 수정하세요.");
+        });
+
+        const settingsRef = window.firebase.doc(db, 'settings', 'app_settings');
+        const unsubSettings = window.firebase.onSnapshot(settingsRef, (docSnap) => {
+          if (docSnap.exists()) {
+            if (docSnap.data().pin) setTeacherPin(docSnap.data().pin);
+            if (docSnap.data().subPin) setSubTeacherPin(docSnap.data().subPin);
+          }
+        });
+        
+        return () => { unsubscribe(); unsubSettings(); };
+      }, [user]);
+
+      const handleStudentSubmit = async (data) => {
+        if (!user || !db) return alert("데이터베이스 연결 오류");
+        setIsSubmitting(true);
+        try {
+          const colRef = window.firebase.collection(db, 'student_introductions');
+          await window.firebase.addDoc(colRef, { ...data, createdAt: Date.now(), userId: user.uid });
+          setView('thankyou');
+        } catch (error) {
+          alert("저장 중 오류가 발생했습니다.");
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
+
+      if (isConfigError) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-gray-50 p-6">
+            <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full text-center border-t-4 border-red-500">
+              <div className="text-4xl mb-4">⚠️</div>
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">초기 설정이 필요합니다</h2>
+              <p className="text-gray-600 text-sm">firebaseConfig 부분에 선생님의 설정을 넣어주세요.</p>
             </div>
-            <h3 className="text-2xl font-bold text-center text-gray-800 mb-2">선생님 확인</h3>
-            <p className="text-sm text-center text-gray-500 mb-6">학생들의 소중한 데이터를 보호하기 위해<br/>비밀번호를 입력해주세요.</p>
-            
-            <form onSubmit={handleTeacherLogin}>
-              <input
-                type="password"
-                autoFocus
-                value={pin}
-                onChange={(e) => { setPin(e.target.value); setPinError(''); }}
-                placeholder="비밀번호 입력"
-                className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-emerald-500 outline-none mb-2 text-center text-xl tracking-widest font-mono"
-              />
-              {pinError && <p className="text-red-500 text-xs text-center mb-4 font-medium">{pinError}</p>}
-              
-              <div className="flex space-x-3 mt-6">
-                <button 
-                  type="button" 
-                  onClick={() => { setShowPinModal(false); setPinError(''); setPin(''); }}
-                  className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors"
-                >
-                  취소
-                </button>
-                <button 
-                  type="submit" 
-                  className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700 transition-colors"
-                >
-                  확인
+          </div>
+        );
+      }
+
+      if (!user && !isConfigError) {
+        return (
+          <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-indigo-600 font-bold">
+            <div className="animate-spin text-4xl mb-4">⏳</div>데이터베이스 연결 중...
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-gray-50">
+          {view === 'select' && <RoleSelection setView={setView} teacherPin={teacherPin} subTeacherPin={subTeacherPin} />}
+          {view === 'student' && <StudentForm onSubmit={handleStudentSubmit} onBack={() => setView('select')} isSubmitting={isSubmitting} />}
+          {view === 'thankyou' && <ThankYouView onHome={() => setView('select')} />}
+          {view === 'teacher' && <TeacherDashboard students={students} onBack={() => setView('select')} currentUrl={currentUrl} db={db} />}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 역할 선택
+    // ==========================================
+    function RoleSelection({ setView, teacherPin, subTeacherPin }) {
+      const [showPinModal, setShowPinModal] = useState(false);
+      const [pin, setPin] = useState('');
+      const [pinError, setPinError] = useState('');
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        const inputPin = String(pin).trim();
+        const mainPin = String(teacherPin).trim();
+        const subPin = subTeacherPin ? String(subTeacherPin).trim() : '';
+
+        if (inputPin === mainPin || (subPin !== '' && inputPin === subPin)) {
+          setView('teacher');
+        } else {
+          setPinError('비밀번호가 일치하지 않습니다.');
+        }
+      };
+
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen px-4 py-8 relative">
+          <div className="text-center mb-10">
+            <h1 className="text-3xl font-bold text-indigo-700 mb-3">온라인 자기소개서</h1>
+            <p className="text-gray-500">원하시는 메뉴를 선택해주세요.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
+            <button onClick={() => setView('student')} className="flex flex-col items-center justify-center p-10 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-400 transition-all">
+              <div className="text-5xl mb-4">🧑‍🎓</div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">학생입니다</h2>
+              <p className="text-sm text-gray-500">나의 자기소개서를 제출합니다.</p>
+            </button>
+            <button onClick={() => setShowPinModal(true)} className="flex flex-col items-center justify-center p-10 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-emerald-400 transition-all">
+              <div className="text-5xl mb-4">👨‍🏫</div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">선생님입니다</h2>
+              <p className="text-sm text-gray-500">학생들의 데이터를 관리합니다.</p>
+            </button>
+          </div>
+
+          {showPinModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm p-8">
+                <div className="text-4xl text-center mb-4">🔒</div>
+                <h3 className="text-2xl font-bold text-center mb-6">선생님 확인</h3>
+                <form onSubmit={handleLogin}>
+                  <input type="password" autoFocus value={pin} onChange={(e) => {setPin(e.target.value); setPinError('');}} placeholder="비밀번호 입력" className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-emerald-500 outline-none mb-2 text-center text-xl tracking-widest font-mono" />
+                  {pinError && <p className="text-red-500 text-xs text-center mb-4">{pinError}</p>}
+                  <div className="flex space-x-3 mt-4">
+                    <button type="button" onClick={() => {setShowPinModal(false); setPin('');}} className="flex-1 py-3 bg-gray-100 rounded-xl font-medium">취소</button>
+                    <button type="submit" className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-medium">확인</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 학생 폼
+    // ==========================================
+    function StudentForm({ onSubmit, onBack, isSubmitting }) {
+      const [formData, setFormData] = useState({});
+
+      const handleChange = (e) => {
+        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+      };
+
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-8">
+          <button onClick={onBack} className="flex items-center text-gray-500 hover:text-indigo-600 mb-6 font-medium">⬅️ 처음으로</button>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="bg-indigo-600 px-6 py-8 text-white text-center">
+              <h2 className="text-2xl font-bold mb-2">나를 소개합니다 👋</h2>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="p-6 sm:p-10 space-y-10">
+              {CATEGORIES.map(category => (
+                <div key={category} className="space-y-5">
+                  <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4"><span className="text-indigo-500 mr-2">|</span>{category}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {FORM_FIELDS.filter(f => f.category === category).map((field) => (
+                      <div key={field.id} className={field.type === 'textarea' ? 'md:col-span-2' : ''}>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">{field.label}</label>
+                        {field.type === 'textarea' ? (
+                          <textarea name={field.id} required placeholder={field.placeholder} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none h-28 resize-none"></textarea>
+                        ) : (
+                          <input type={field.type} name={field.id} required placeholder={field.placeholder} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div className="pt-6">
+                <button type="submit" disabled={isSubmitting} className="w-full bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg">
+                  {isSubmitting ? '저장 중...' : '선생님께 제출하기'}
                 </button>
               </div>
             </form>
           </div>
         </div>
-      )}
-    </div>
-  );
-}
+      );
+    }
 
-// ==========================================
-// 2. 학생용 제출 폼
-// ==========================================
-function StudentForm({ onSubmit, onBack, isSubmitting }) {
-  const [formData, setFormData] = useState({});
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    onSubmit(formData);
-  };
-
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <button onClick={onBack} className="flex items-center text-gray-500 hover:text-indigo-600 mb-6 transition-colors">
-        <ArrowLeft size={18} className="mr-1" /> 처음으로
-      </button>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="bg-indigo-600 px-6 py-8 text-white text-center">
-          <h2 className="text-2xl font-bold mb-2">나를 소개합니다 👋</h2>
-          <p className="text-indigo-100 text-sm">선생님이 여러분을 더 잘 이해하고 돕기 위한 자료입니다.<br/>솔직하고 편안하게 작성해주세요!</p>
+    function ThankYouView({ onHome }) {
+      return (
+        <div className="flex items-center justify-center min-h-screen px-4">
+          <div className="bg-white p-10 rounded-2xl shadow-sm text-center max-w-md w-full">
+            <div className="text-6xl mb-6">✅</div>
+            <h2 className="text-2xl font-bold mb-2">제출 완료!</h2>
+            <button onClick={onHome} className="w-full mt-6 bg-gray-100 py-3 rounded-xl">처음 화면으로</button>
+          </div>
         </div>
+      );
+    }
 
-        <form onSubmit={handleSubmit} className="p-6 sm:p-10 space-y-10">
-          
-          {/* 카테고리별로 묶어서 렌더링 */}
-          {['인적사항', '가정환경', '생활습관', '가치관', '자기이해', '진로', '소통'].map(category => (
-            <div key={category} className="space-y-5">
-              <h3 className="text-lg font-bold text-gray-800 border-b border-gray-200 pb-2 mb-4 flex items-center">
-                <span className="w-2 h-6 bg-indigo-500 rounded-full mr-2"></span>
-                {category}
-              </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {FORM_FIELDS.filter(f => f.category === category).map((field) => (
-                  <div key={field.id} className={field.type === 'textarea' ? 'md:col-span-2' : ''}>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      {field.label}
-                    </label>
-                    {field.type === 'textarea' ? (
-                      <textarea
-                        name={field.id}
-                        required
-                        placeholder={field.placeholder}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all resize-none h-28"
-                      />
+    // ==========================================
+    // 선생님 대시보드
+    // ==========================================
+    function TeacherDashboard({ students, onBack, currentUrl, db }) {
+      const [activeTab, setActiveTab] = useState('byStudent');
+      return (
+        <div className="flex flex-col h-screen bg-gray-100">
+          <header className="bg-emerald-700 text-white flex-none">
+            <div className="max-w-7xl mx-auto px-4 py-2 sm:h-16 flex flex-col sm:flex-row items-center justify-between">
+              <div className="flex items-center space-x-3 mb-2 sm:mb-0">
+                <button onClick={onBack} className="text-xl hover:bg-emerald-600 rounded-full p-1">⬅️</button>
+                <h1 className="text-lg font-bold">👨‍🏫 학급 대시보드 <span className="ml-2 text-xs bg-emerald-800 px-2 py-1 rounded-full">{students.length}명</span></h1>
+              </div>
+              <div className="flex space-x-1 bg-emerald-800 p-1 rounded-lg text-sm hide-scrollbar overflow-x-auto">
+                {['byStudent', 'byQuestion', 'qr', 'settings'].map(tab => {
+                  const titles = { byStudent: '학생별', byQuestion: '문항별', qr: 'QR배포', settings: '설정/백업' };
+                  const emojis = { byStudent: '👤', byQuestion: '📋', qr: '📱', settings: '⚙️' };
+                  return (
+                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-3 py-1.5 rounded-md whitespace-nowrap ${activeTab === tab ? 'bg-white text-emerald-800 font-bold' : 'text-emerald-100 hover:bg-emerald-600'}`}>
+                      {emojis[tab]} {titles[tab]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </header>
+          <main className="flex-1 overflow-hidden">
+            {activeTab === 'byStudent' && <ViewByStudent students={students} db={db} />}
+            {activeTab === 'byQuestion' && <ViewByQuestion students={students} />}
+            {activeTab === 'qr' && <ViewQRCode url={currentUrl} />}
+            {activeTab === 'settings' && <ViewSettings db={db} students={students} />}
+          </main>
+        </div>
+      );
+    }
+
+    // --- 교사: 학생별 보기 ---
+    function ViewByStudent({ students, db }) {
+      const [selId, setSelId] = useState(null); 
+      const [isEdit, setIsEdit] = useState(false);
+      const [editData, setEditData] = useState({});
+      const student = students.find(s => s.id === selId);
+
+      useEffect(() => { setIsEdit(false); }, [selId]);
+
+      const handleSave = async () => {
+        try {
+          await window.firebase.updateDoc(window.firebase.doc(db, 'student_introductions', selId), editData);
+          setIsEdit(false);
+        } catch (e) { alert("저장 실패"); }
+      };
+
+      const handleDel = async () => {
+        if(confirm(`${student.name} 학생의 데이터를 삭제하시겠습니까?`)) {
+          await window.firebase.deleteDoc(window.firebase.doc(db, 'student_introductions', selId));
+          setSelId(null);
+        }
+      };
+
+      const escapeCsv = (str) => {
+        let s = String(str).replace(/"/g, '""');
+        if (s.includes(',') || s.includes('\n') || s.includes('"')) s = `"${s}"`;
+        return s;
+      };
+
+      return (
+        <div className="flex flex-col md:flex-row h-full">
+          <div className={`w-full md:w-64 bg-white border-r flex-none overflow-y-auto smooth-scroll ${selId ? 'hidden md:flex md:flex-col' : 'flex flex-col'}`}>
+            {students.map(s => (
+              <button key={s.id} onClick={() => setSelId(s.id)} className={`w-full text-left p-4 border-b flex justify-between items-center ${selId === s.id ? 'bg-emerald-50 border-emerald-200' : 'hover:bg-gray-50'}`}>
+                <div className={`font-bold ${selId === s.id ? 'text-emerald-700' : 'text-gray-800'}`}>{s.name}</div>
+                <div className="text-gray-300 md:hidden">❯</div>
+              </button>
+            ))}
+          </div>
+
+          <div className={`flex-1 overflow-y-auto bg-gray-50 p-4 sm:p-6 smooth-scroll ${!selId ? 'hidden md:block' : 'block'}`}>
+            {!student ? <div className="h-full hidden md:flex items-center justify-center text-gray-400">학생을 선택해주세요.</div> : (
+              <div className="max-w-4xl mx-auto space-y-4">
+                <button onClick={() => setSelId(null)} className="md:hidden mb-2 px-3 py-2 bg-white border rounded-lg text-sm">⬅️ 목록으로</button>
+                <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border">
+                  {isEdit ? (
+                    <input className="text-2xl font-bold border-b-2 border-emerald-500 outline-none w-full sm:w-48 bg-gray-50 p-1" value={editData.name || ''} onChange={e=>setEditData({...editData, name: e.target.value})} placeholder="이름" />
+                  ) : (<h2 className="text-2xl font-bold inline">{student.name}</h2>)}
+                  
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    {!isEdit && (
+                      <button onClick={() => {
+                        let csvContent = "data:text/csv;charset=utf-8,\uFEFF카테고리,문항,답변(기본/하이픈O),답변(하이픈X),추가정보(텍스트)\n";
+                        FORM_FIELDS.forEach(f => {
+                          let ans1 = student[f.id] || "미작성", ans2 = "", extra = "";
+                          if (f.id === 'emergency' || f.id === 'contact') {
+                            const extracted = extractPhoneAndText(ans1, student.name);
+                            ans1 = extracted.phoneHyphen; ans2 = extracted.phoneNoHyphen; extra = extracted.relation;
+                          }
+                          csvContent += `${escapeCsv(f.category)},${escapeCsv(f.label)},${escapeCsv(ans1)},${escapeCsv(ans2)},${escapeCsv(extra)}\n`;
+                        });
+                        csvContent += `교사 전용,교사 상담 메모,${escapeCsv(student.teacherNote || "기록 없음")},,\n`;
+                        const link = document.createElement("a");
+                        link.setAttribute("href", encodeURI(csvContent)); link.setAttribute("download", `${student.name}_자기소개서.csv`);
+                        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+                      }} className="px-3 py-2 bg-green-50 text-green-700 rounded-lg text-sm font-bold border">📊 엑셀</button>
+                    )}
+                    {isEdit ? (
+                      <><button onClick={()=>setIsEdit(false)} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-medium">취소</button>
+                      <button onClick={handleSave} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium">저장</button></>
                     ) : (
-                      <input
-                        type={field.type}
-                        name={field.id}
-                        required
-                        placeholder={field.placeholder}
-                        onChange={handleChange}
-                        className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                      />
+                      <><button onClick={()=>{setEditData({...student}); setIsEdit(true);}} className="px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-bold border">✏️ 수정</button>
+                      <button onClick={handleDel} className="px-3 py-2 bg-red-50 text-red-700 rounded-lg text-sm font-bold border">🗑️ 삭제</button></>
                     )}
                   </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div className="pt-6">
-            <button 
-              type="submit" 
-              disabled={isSubmitting}
-              className={`w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-4 px-8 rounded-xl shadow-lg hover:shadow-xl transition-all flex justify-center items-center ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''}`}
-            >
-              <Save size={20} className="mr-2" />
-              {isSubmitting ? '클라우드에 저장 중...' : '선생님께 제출하기'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
-// ==========================================
-// 제출 완료 화면
-// ==========================================
-function ThankYouView({ onHome }) {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen px-4">
-      <div className="bg-white p-10 rounded-2xl shadow-sm border border-gray-100 text-center max-w-md w-full">
-        <CheckCircle size={64} className="text-emerald-500 mx-auto mb-6" />
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">제출이 완료되었습니다!</h2>
-        <p className="text-gray-500 mb-8">소중한 이야기를 들려주어 고맙습니다.<br/>비밀은 꼭 지킬게요!</p>
-        <button onClick={onHome} className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-3 px-6 rounded-xl transition-colors w-full">
-          처음 화면으로
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ==========================================
-// 3. 교사용 관리 대시보드
-// ==========================================
-function TeacherDashboard({ students, onBack, currentUrl }) {
-  const [activeTab, setActiveTab] = useState('byStudent'); // 'byStudent', 'byQuestion', 'qr', 'settings'
-
-  return (
-    <div className="flex flex-col h-screen bg-gray-100">
-      {/* 교사용 상단 네비게이션 */}
-      <header className="bg-emerald-700 text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <button onClick={onBack} className="p-2 hover:bg-emerald-600 rounded-full transition-colors" title="나가기">
-              <ArrowLeft size={20} />
-            </button>
-            <h1 className="text-lg font-bold flex items-center">
-              <Users className="mr-2" size={20}/>
-              학급 관리 대시보드
-              <span className="ml-3 px-2 py-1 bg-emerald-800 rounded-full text-xs">총 {students.length}명 제출</span>
-            </h1>
-        </div>
-        
-        <nav className="flex space-x-1 bg-emerald-800 p-1 rounded-lg">
-          <TabButton active={activeTab === 'byStudent'} onClick={() => setActiveTab('byStudent')} icon={<User size={16}/>} text="학생별 보기" />
-          <TabButton active={activeTab === 'byQuestion'} onClick={() => setActiveTab('byQuestion')} icon={<List size={16}/>} text="문항별 보기" />
-          <TabButton active={activeTab === 'qr'} onClick={() => setActiveTab('qr')} icon={<QrCode size={16}/>} text="QR 배포" />
-          <TabButton active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} icon={<Settings size={16}/>} text="설정" />
-        </nav>
-      </div>
-    </header>
-
-    {/* 메인 콘텐츠 영역 (스크롤 가능) */}
-    <main className="flex-1 overflow-hidden">
-      {activeTab === 'byStudent' && <ViewByStudent students={students} />}
-      {activeTab === 'byQuestion' && <ViewByQuestion students={students} />}
-      {activeTab === 'qr' && <ViewQRCode url={currentUrl} />}
-      {activeTab === 'settings' && <ViewSettings students={students} />}
-    </main>
-  </div>
-  );
-}
-
-// 상단 탭 버튼 컴포넌트
-function TabButton({ active, onClick, icon, text }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex items-center px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-        active ? 'bg-white text-emerald-800 shadow-sm' : 'text-emerald-100 hover:bg-emerald-600'
-      }`}
-    >
-      <span className="mr-1.5">{icon}</span>
-      {text}
-    </button>
-  );
-}
-
-// ------------------------------------------
-// 3-1. 교사용: 학생별 보기
-// ------------------------------------------
-function ViewByStudent({ students }) {
-  const [selectedStudentId, setSelectedStudentId] = useState(students.length > 0 ? students[0].id : null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editData, setEditData] = useState({});
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const selectedStudent = students.find(s => s.id === selectedStudentId);
-
-  // 선택된 학생이 바뀔 때 수정 모드 초기화
-  useEffect(() => {
-    setIsEditing(false);
-  }, [selectedStudentId]);
-
-  if (students.length === 0) {
-    return <EmptyState message="아직 제출한 학생이 없습니다." />;
-  }
-
-  // --- 수정 및 삭제 핸들러 ---
-  const handleEditClick = () => {
-    setEditData({ ...selectedStudent });
-    setIsEditing(true);
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-    setEditData({});
-  };
-
-  const handleEditChange = (e) => {
-    const { name, value } = e.target;
-    setEditData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleSaveEdit = async () => {
-    // db가 외부에서 초기화되어 사용 가능함
-    if (!selectedStudentId) return;
-    setIsSaving(true);
-    try {
-      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'student_introductions', selectedStudentId);
-      await updateDoc(docRef, editData);
-      setIsEditing(false);
-    } catch (error) {
-      console.error("수정 중 오류 발생:", error);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const confirmDelete = async () => {
-    if (!selectedStudentId) return;
-    try {
-      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'student_introductions', selectedStudentId);
-      await deleteDoc(docRef);
-      setShowDeleteModal(false);
-      setSelectedStudentId(null); // 삭제 후 선택 해제
-    } catch (error) {
-      console.error("삭제 중 오류 발생:", error);
-    }
-  };
-
-  return (
-    <div className="flex h-full relative">
-      {/* 왼쪽 학생 리스트 사이드바 */}
-      <div className="w-72 bg-white border-r border-gray-200 flex flex-col h-full">
-        <div className="p-4 border-b border-gray-100 bg-gray-50">
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 text-gray-400" size={16} />
-            <input 
-              type="text" 
-              placeholder="이름 검색..." 
-              className="w-full pl-9 pr-3 py-2 bg-white border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2">
-          {students.map(student => (
-            <button
-              key={student.id}
-              onClick={() => setSelectedStudentId(student.id)}
-              className={`w-full text-left px-4 py-3 rounded-lg mb-1 flex items-center justify-between transition-colors ${
-                selectedStudentId === student.id ? 'bg-emerald-50 border border-emerald-200' : 'hover:bg-gray-50 border border-transparent'
-              }`}
-            >
-              <div>
-                <div className={`font-semibold ${selectedStudentId === student.id ? 'text-emerald-800' : 'text-gray-800'}`}>
-                  {student.name}
                 </div>
-                <div className="text-xs text-gray-500 mt-0.5">{student.sNum}</div>
-              </div>
-              <ChevronRight size={16} className={selectedStudentId === student.id ? 'text-emerald-500' : 'text-transparent'} />
-            </button>
-          ))}
-        </div>
-      </div>
 
-      {/* 오른쪽 상세 내용 */}
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-6 sm:p-8">
-        {selectedStudent ? (
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-              {isEditing ? (
-                <div className="flex flex-col space-y-2 w-full sm:w-auto">
-                  <input type="text" name="name" value={editData.name || ''} onChange={handleEditChange} className="font-bold text-gray-800 text-2xl border-b-2 border-emerald-500 outline-none px-1" placeholder="이름" />
-                  <input type="text" name="sNum" value={editData.sNum || ''} onChange={handleEditChange} className="text-emerald-600 font-medium border-b border-emerald-300 outline-none px-1" placeholder="학번" />
+                <div className="bg-amber-50 p-6 rounded-xl border border-amber-200">
+                  <h3 className="font-bold text-amber-800 mb-2 text-sm">✏️ 교사 상담 메모 (비공개)</h3>
+                  {isEdit ? <textarea value={editData.teacherNote||''} onChange={e=>setEditData({...editData, teacherNote: e.target.value})} className="w-full p-3 rounded-lg border outline-none text-sm" rows="3"></textarea> : <div className="bg-white p-4 rounded-lg text-sm whitespace-pre-wrap">{student.teacherNote || <span className="text-gray-400">기록 없음</span>}</div>}
                 </div>
-              ) : (
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-800 mr-3 inline-block">{selectedStudent.name}</h2>
-                  <span className="text-emerald-600 font-medium">{selectedStudent.sNum}</span>
-                </div>
-              )}
-              
-              <div className="flex items-center space-x-2 w-full sm:w-auto">
-                {isEditing ? (
-                  <>
-                    <button onClick={handleCancelEdit} className="flex-1 sm:flex-none px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg flex items-center justify-center transition-colors font-medium">
-                      <X size={16} className="mr-1" /> 취소
-                    </button>
-                    <button onClick={handleSaveEdit} disabled={isSaving} className="flex-1 sm:flex-none px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg flex items-center justify-center transition-colors font-medium">
-                      <Save size={16} className="mr-1" /> {isSaving ? '저장 중...' : '저장 완료'}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button onClick={handleEditClick} className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg flex items-center transition-colors text-sm font-medium">
-                      <Edit size={16} className="mr-1" /> 수정/메모
-                    </button>
-                    <button onClick={() => setShowDeleteModal(true)} className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 rounded-lg flex items-center transition-colors text-sm font-medium">
-                      <Trash2 size={16} className="mr-1" /> 삭제
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
 
-            {/* 교사 상담 메모 (선생님 전용 영역) */}
-            <div className="bg-amber-50 rounded-2xl shadow-sm border border-amber-200 p-6">
-              <h3 className="text-lg font-bold text-amber-800 mb-3 flex items-center">
-                <Edit size={18} className="mr-2" /> 교사 상담 메모 (비공개)
-              </h3>
-              {isEditing ? (
-                <textarea
-                  name="teacherNote"
-                  value={editData.teacherNote || ''}
-                  onChange={handleEditChange}
-                  placeholder="이 학생과의 상담 내용이나 추가 특이사항을 이곳에 자유롭게 기록해두세요."
-                  className="w-full p-3 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 outline-none h-24 bg-white"
-                />
-              ) : (
-                <div className="text-amber-900 text-sm whitespace-pre-wrap leading-relaxed min-h-[3rem] bg-white p-4 rounded-lg border border-amber-100">
-                  {selectedStudent.teacherNote || <span className="text-amber-700/50 italic">기록된 상담 메모가 없습니다. 상단의 '수정/메모' 버튼을 눌러 추가하세요.</span>}
-                </div>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {['인적사항', '가정환경', '생활습관', '가치관', '자기이해', '진로', '소통'].map(category => {
-                const fieldsInCategory = FORM_FIELDS.filter(f => f.category === category);
-                return (
-                  <div key={category} className={`bg-white rounded-2xl shadow-sm border border-gray-200 p-6 ${category === '소통' || category === '자기이해' ? 'md:col-span-2' : ''}`}>
-                    <h3 className="text-lg font-bold text-gray-800 mb-4 pb-2 border-b border-gray-100 text-emerald-700">
-                      {category}
-                    </h3>
-                    <div className="space-y-4">
-                      {fieldsInCategory.map(field => (
-                        <div key={field.id} className="bg-gray-50 rounded-lg p-3">
-                          <div className="text-xs font-semibold text-gray-500 mb-1">{field.label}</div>
-                          {isEditing ? (
-                            field.type === 'textarea' ? (
-                              <textarea
-                                name={field.id}
-                                value={editData[field.id] || ''}
-                                onChange={handleEditChange}
-                                className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 outline-none text-sm bg-white"
-                                rows={3}
-                              />
-                            ) : (
-                              <input
-                                type="text"
-                                name={field.id}
-                                value={editData[field.id] || ''}
-                                onChange={handleEditChange}
-                                className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-emerald-500 outline-none text-sm bg-white"
-                              />
-                            )
-                          ) : (
-                            <div className="text-gray-800 text-sm whitespace-pre-wrap leading-relaxed">
-                              {selectedStudent[field.id] || <span className="text-gray-400 italic">미작성</span>}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {CATEGORIES.map(category => (
+                    <div key={category} className={`bg-white p-6 rounded-xl border ${category==='소통'?'md:col-span-2':''}`}>
+                      <h3 className="font-bold text-emerald-700 mb-4 border-b pb-2 text-sm">{category}</h3>
+                      <div className="space-y-4">
+                        {FORM_FIELDS.filter(f=>f.category===category).map(f => (
+                          <div key={f.id} className="bg-gray-50 p-3 rounded-lg border">
+                            <div className="text-xs font-bold text-gray-500 mb-1">{f.label}</div>
+                            {isEdit ? ( f.type === 'textarea' ? <textarea value={editData[f.id]||''} onChange={e=>setEditData({...editData, [f.id]:e.target.value})} className="w-full p-2 border rounded outline-none text-sm" rows="2" /> : <input value={editData[f.id]||''} onChange={e=>setEditData({...editData, [f.id]:e.target.value})} className="w-full p-2 border rounded outline-none text-sm" /> ) : (
+                              <div className="text-sm whitespace-pre-wrap">{(f.id === 'emergency') ? (formatEmergencyContact(student[f.id], student.name) || "미작성") : (f.id === 'contact') ? (formatPhoneNumberDisplay(student[f.id]) || "미작성") : (student[f.id] || "미작성")}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center justify-center h-full text-gray-400">
-            학생을 선택해주세요.
-          </div>
-        )}
-      </div>
-
-      {/* 삭제 확인 모달 */}
-      {showDeleteModal && (
-        <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 p-4 rounded-xl">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full animate-in fade-in zoom-in duration-200">
-            <div className="flex items-center justify-center w-12 h-12 bg-red-100 text-red-600 rounded-full mb-4 mx-auto">
-              <Trash2 size={24} />
-            </div>
-            <h3 className="text-xl font-bold text-center text-gray-900 mb-2">정말 삭제하시겠습니까?</h3>
-            <p className="text-sm text-center text-gray-500 mb-6">
-              <span className="font-bold text-gray-700">{selectedStudent?.name}</span> 학생의 자기소개서를 완전히 삭제합니다.<br/>이 작업은 되돌릴 수 없습니다.
-            </p>
-            <div className="flex space-x-3">
-              <button onClick={() => setShowDeleteModal(false)} className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-medium hover:bg-gray-200 transition-colors">
-                취소
-              </button>
-              <button onClick={confirmDelete} className="flex-1 py-3 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition-colors">
-                삭제
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ------------------------------------------
-// 3-2. 교사용: 문항별 모아보기
-// ------------------------------------------
-function ViewByQuestion({ students }) {
-  const [selectedFieldId, setSelectedFieldId] = useState(FORM_FIELDS[16].id); // 기본값: 비밀 고민
-
-  if (students.length === 0) {
-    return <EmptyState message="아직 제출한 학생이 없습니다." />;
-  }
-
-  const selectedField = FORM_FIELDS.find(f => f.id === selectedFieldId);
-
-  return (
-    <div className="h-full flex flex-col p-6 sm:p-8 max-w-5xl mx-auto">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between">
-        <label className="font-bold text-gray-700 mb-2 sm:mb-0 mr-4 whitespace-nowrap">
-          조회할 문항 선택:
-        </label>
-        <select 
-          value={selectedFieldId}
-          onChange={(e) => setSelectedFieldId(e.target.value)}
-          className="flex-1 w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-        >
-          {FORM_FIELDS.map(field => (
-            <option key={field.id} value={field.id}>
-              [{field.category}] {field.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex-1 overflow-y-auto">
-        <h3 className="text-xl font-bold text-emerald-800 mb-4 flex items-center">
-          <List size={20} className="mr-2" />
-          해당 문항에 대한 학생들의 답변
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {students.map(student => (
-            <div key={student.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-shadow">
-              <div className="flex items-baseline mb-3 pb-2 border-b border-gray-100">
-                <span className="font-bold text-gray-800 text-lg mr-2">{student.name}</span>
-                <span className="text-xs text-gray-500">{student.sNum}</span>
+                  ))}
+                </div>
               </div>
-              <div className="text-gray-700 text-sm whitespace-pre-wrap leading-relaxed min-h-[3rem]">
-                {student[selectedFieldId] || <span className="text-gray-400 italic">내용 없음</span>}
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // --- 교사: 문항별 보기 ---
+    function ViewByQuestion({ students }) {
+      const [selField, setSelField] = useState(FORM_FIELDS[15].id); // 비밀고민
+      
+      const handleDownloadExcel = () => {
+        if (!students.length) return alert("데이터가 없습니다.");
+        const fieldName = FORM_FIELDS.find(f => f.id === selField)?.label || '데이터';
+        let csvContent = "data:text/csv;charset=utf-8,\uFEFF이름," + ((selField === 'emergency' || selField === 'contact') ? "번호(O),번호(X),추가정보\n" : `${fieldName}\n`); 
+
+        students.forEach(s => {
+          let ans = s[selField] || "미작성";
+          if (selField === 'emergency' || selField === 'contact') {
+            const ext = extractPhoneAndText(ans, s.name);
+            csvContent += `"${s.name}","${ext.phoneHyphen}","${ext.phoneNoHyphen}","${ext.relation}"\n`;
+          } else {
+            csvContent += `"${s.name}","${String(ans).replace(/"/g, '""')}"\n`;
+          }
+        });
+        const link = document.createElement("a"); link.setAttribute("href", encodeURI(csvContent)); link.setAttribute("download", `우리반_${fieldName}.csv`);
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      };
+
+      return (
+        <div className="h-full flex flex-col p-6 max-w-5xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 flex gap-4 items-center">
+            <select value={selField} onChange={e=>setSelField(e.target.value)} className="flex-1 p-2 border rounded outline-none font-bold">
+              {FORM_FIELDS.map(f => <option key={f.id} value={f.id}>[{f.category}] {f.label}</option>)}
+            </select>
+            <button onClick={handleDownloadExcel} className="px-4 py-2 bg-green-600 text-white rounded font-bold whitespace-nowrap">📊 엑셀 저장</button>
+          </div>
+          <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+            {students.map(s => (
+              <div key={s.id} className="bg-white p-5 rounded-xl border">
+                <div className="font-bold text-emerald-800 mb-2 border-b pb-2">{s.name}</div>
+                <div className="text-sm whitespace-pre-wrap">{(selField === 'emergency') ? formatEmergencyContact(s[selField], s.name) : (selField === 'contact') ? formatPhoneNumberDisplay(s[selField]) : s[selField]}</div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
-    </div>
-  );
-}
+      );
+    }
 
-// ------------------------------------------
-// 3-3. 교사용: QR 코드 공유
-// ------------------------------------------
-function ViewQRCode({ url }) {
-  // 미리보기 환경 등에서 URL 파라미터가 길어질 수 있으므로 기본 URL을 깨끗하게 정리합니다.
-  const initialCleanUrl = url.split('?')[0];
-  const [customUrl, setCustomUrl] = useState(initialCleanUrl);
-  
-  const encodedUrl = encodeURIComponent(customUrl);
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodedUrl}`;
-
-  return (
-    <div className="h-full flex items-center justify-center p-6 overflow-y-auto">
-      <div className="bg-white rounded-3xl shadow-lg border border-gray-200 p-10 max-w-md w-full text-center my-auto">
-        <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-6">
-          <QrCode size={32} />
+    // --- 교사: QR 코드 ---
+    function ViewQRCode({ url }) {
+      const [customUrl, setCustomUrl] = useState(url.split('?')[0].replace('index.html', ''));
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(customUrl)}`;
+      return (
+        <div className="h-full flex items-center justify-center p-6">
+          <div className="bg-white p-8 rounded-3xl shadow-lg text-center max-w-md w-full border">
+            <h2 className="text-2xl font-bold mb-6">학생 배포용 QR</h2>
+            <img src={qrUrl} className="mx-auto w-48 h-48 mb-6" alt="QR" />
+            <input value={customUrl} onChange={e=>setCustomUrl(e.target.value)} className="w-full p-3 border rounded-lg mb-2 text-sm" />
+            <p className="text-xs text-gray-500">정식 주소로 수정하면 QR이 변경됩니다.</p>
+          </div>
         </div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-2">학생 배포용 QR 코드</h2>
-        <p className="text-gray-500 mb-4 text-sm">
-          아래 QR 코드를 교실 화면에 띄우거나 출력해서<br/>학생들이 스마트폰으로 접속하게 해주세요.
-        </p>
+      );
+    }
 
-        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-xs text-left mb-6 leading-relaxed">
-          <strong>안내:</strong> 현재 화면의 주소가 임시 주소(미리보기)인 경우 스마트폰 카메라로 연결되지 않을 수 있습니다. 정식으로 배포하신 진짜 주소를 아래 칸에 입력하시면 QR코드가 즉시 알맞게 변경됩니다.
-        </div>
+    // --- 교사: 설정 및 구글시트 전체 백업 ---
+    function ViewSettings({ db, students }) {
+      const [pin1, setPin1] = useState(''); const [pin2, setPin2] = useState('');
+      const [subPin1, setSubPin1] = useState(''); const [subPin2, setSubPin2] = useState('');
+
+      const handleSaveMain = async (e) => {
+        e.preventDefault();
+        if(pin1!==pin2 || pin1.length<4) return alert("비밀번호 불일치 또는 4자리 미만");
+        await window.firebase.setDoc(window.firebase.doc(db, 'settings', 'app_settings'), {pin: String(pin1).trim()}, { merge: true });
+        alert("담임 비밀번호 변경 완료"); setPin1(''); setPin2('');
+      };
+
+      const handleSaveSub = async (e) => {
+        e.preventDefault();
+        if(subPin1!==subPin2 || subPin1.length<4) return alert("비밀번호 불일치 또는 4자리 미만");
+        await window.firebase.setDoc(window.firebase.doc(db, 'settings', 'app_settings'), {subPin: String(subPin1).trim()}, { merge: true });
+        alert("부담임 비밀번호 설정 완료"); setSubPin1(''); setSubPin2('');
+      };
+
+      // ✨ 구글 시트 복사용 전체 백업 버튼 로직 ✨
+      const handleFullBackup = () => {
+        if (!students || students.length === 0) return alert("백업할 데이터가 없습니다.");
+
+        // 구글 시트 앱스 스크립트의 헤더와 완벽히 일치해야 함
+        const currentFields = FORM_FIELDS.map(f => f.id);
+        const headers = ["id", ...currentFields, "teacherNote", "createdAt"];
         
-        <div className="bg-gray-50 p-6 rounded-2xl flex justify-center mb-6 border border-gray-100">
-          <img src={qrImageUrl} alt="학생 접속용 QR 코드" className="w-48 h-48 mix-blend-multiply" />
-        </div>
+        let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
+        csvContent += headers.join(",") + "\n";
 
-        <div className="text-left">
-          <label className="block text-xs font-semibold text-gray-500 mb-1">접속 링크 주소 (수정 가능)</label>
-          <div className="flex">
-            <input 
-              type="text" 
-              value={customUrl} 
-              onChange={(e) => setCustomUrl(e.target.value)}
-              className="flex-1 bg-white border border-gray-300 rounded-l-lg px-3 py-2 text-sm text-gray-800 outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <button 
-              onClick={() => {
-                navigator.clipboard.writeText(customUrl);
-                alert('링크가 복사되었습니다.');
-              }}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-r-lg text-sm font-medium transition-colors"
-            >
-              복사
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+        students.forEach(student => {
+          const row = headers.map(header => {
+            let val = student[header] || "";
+            if (header === 'createdAt' && typeof val === 'number') {
+              val = new Date(val).toLocaleString(); // 날짜 변환
+            }
+            // CSV 엑셀 양식 포맷팅 (따옴표, 줄바꿈 방어)
+            val = String(val).replace(/"/g, '""');
+            if (val.includes(',') || val.includes('\n') || val.includes('"')) {
+              val = `"${val}"`;
+            }
+            return val;
+          });
+          csvContent += row.join(",") + "\n";
+        });
 
-// ------------------------------------------
-// 3-4. 교사용: 설정 (비밀번호 변경)
-// ------------------------------------------
-function ViewSettings({ students }) {
-  const [newPin, setNewPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `자기소개서_구글시트이사_전체백업.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
 
-  const handleSavePin = async (e) => {
-    e.preventDefault();
-    if (newPin !== confirmPin) {
-      alert('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
-      return;
-    }
-    if (newPin.length < 4) {
-      alert('보안을 위해 비밀번호는 4자리 이상으로 설정해주세요.');
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'app_settings');
-      await setDoc(docRef, { pin: newPin }, { merge: true });
-      alert('비밀번호가 성공적으로 변경되었습니다!');
-      setNewPin('');
-      setConfirmPin('');
-    } catch (error) {
-      console.error("비밀번호 변경 오류:", error);
-      alert('변경 중 오류가 발생했습니다.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // 구글 시트용 전체 백업 기능
-  const handleFullBackup = () => {
-    if (!students || students.length === 0) return alert("백업할 데이터가 없습니다.");
-
-    // 구글 시트 열(Column) 순서와 완벽히 일치하는 헤더
-    const headers = ["id", "sNum", "name", "contact", "emergency", "friends", "family", "economy", "routine", "health", "favoritePerson", "subjects", "strengths", "weaknesses", "interests", "future", "toTeacher", "secret", "teacherNote", "createdAt"];
-    
-    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"; 
-    csvContent += headers.join(",") + "\n"; // 첫 줄(제목) 추가
-
-    students.forEach(student => {
-      const row = headers.map(header => {
-        let val = student[header] || "";
-        // 시간 포맷 변환
-        if (header === 'createdAt' && typeof val === 'number') {
-          val = new Date(val).toLocaleString();
-        }
-        // CSV 엑셀 양식에 맞게 줄바꿈 및 특수문자 방어
-        val = String(val).replace(/"/g, '""');
-        if (val.includes(',') || val.includes('\n') || val.includes('"')) {
-          val = `"${val}"`;
-        }
-        return val;
-      });
-      csvContent += row.join(",") + "\n";
-    });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `자기소개서_전체백업.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  return (
-    <div className="h-full flex items-start justify-center p-6 sm:p-12 overflow-y-auto">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 max-w-md w-full">
-        <div className="flex items-center mb-6 pb-4 border-b border-gray-100">
-          <div className="w-10 h-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mr-4">
-            <Key size={20} />
-          </div>
-          <h2 className="text-xl font-bold text-gray-800">보안 설정</h2>
-        </div>
-        
-        <form onSubmit={handleSavePin} className="space-y-5">
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">새 선생님 비밀번호</label>
-            <input 
-              type="password" 
-              value={newPin}
-              onChange={(e) => setNewPin(e.target.value)}
-              placeholder="새로운 비밀번호 입력"
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-emerald-500 outline-none"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">새 비밀번호 확인</label>
-            <input 
-              type="password" 
-              value={confirmPin}
-              onChange={(e) => setConfirmPin(e.target.value)}
-              placeholder="다시 한번 입력해주세요"
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-emerald-500 outline-none"
-              required
-            />
-          </div>
+      return (
+        <div className="p-6 sm:p-10 flex flex-col items-center h-full overflow-y-auto smooth-scroll space-y-6">
           
-          <div className="pt-2">
+          {/* 전체 데이터 백업 영역 (새로 추가됨!) */}
+          <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-indigo-200 max-w-md w-full">
+            <h2 className="font-bold text-xl mb-2 text-indigo-800">💾 구글 시트용 전체 백업</h2>
+            <p className="text-xs text-gray-500 mb-6 leading-relaxed">
+              지금까지 파이어베이스에 저장된 학생들의 자기소개서와 선생님의 메모를 구글 스프레드시트 양식에 완벽히 맞게 한 번에 다운로드합니다. 이 엑셀 파일의 내용을 복사해서 구글 시트에 붙여넣기 하세요!
+            </p>
             <button 
-              type="submit" 
-              disabled={isSaving}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl transition-all disabled:opacity-70"
+              onClick={handleFullBackup} 
+              className="w-full p-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold flex items-center justify-center transition-colors"
             >
-              {isSaving ? '저장 중...' : '비밀번호 변경하기'}
+              📥 구글 시트 이사용 데이터 다운로드 (CSV)
             </button>
           </div>
-        </form>
 
-        {/* 데이터 백업 영역 추가 */}
-        <div className="mt-8 border-t border-gray-100 pt-8">
-          <div className="flex items-center mb-4">
-            <h3 className="text-lg font-bold text-gray-800">💾 구글 시트용 데이터 이사</h3>
-          </div>
-          <p className="text-xs text-gray-500 mb-4 leading-relaxed">
-            파이어베이스에 저장된 모든 학생들의 자기소개서와 선생님의 상담 메모를 구글 스프레드시트 양식에 딱 맞게 한 번에 다운로드합니다.
-          </p>
-          <button 
-            onClick={handleFullBackup} 
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl transition-all flex items-center justify-center"
-          >
-            📥 전체 데이터 백업 (CSV)
-          </button>
+          <form onSubmit={handleSaveMain} className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-emerald-200 max-w-md w-full space-y-4">
+            <h2 className="font-bold text-xl mb-2 text-emerald-800">👑 담임 비밀번호 변경</h2>
+            <input type="password" value={pin1} onChange={e=>setPin1(e.target.value)} placeholder="새 비밀번호" className="w-full p-3 border rounded-xl" />
+            <input type="password" value={pin2} onChange={e=>setPin2(e.target.value)} placeholder="비밀번호 확인" className="w-full p-3 border rounded-xl" />
+            <button className="w-full p-3 bg-emerald-600 text-white rounded-xl font-bold">저장</button>
+          </form>
+
+          <form onSubmit={handleSaveSub} className="bg-white p-6 sm:p-8 rounded-2xl shadow-sm border border-blue-200 max-w-md w-full space-y-4">
+            <h2 className="font-bold text-xl mb-1 text-blue-800">👥 부담임 전용 비밀번호</h2>
+            <input type="password" value={subPin1} onChange={e=>setSubPin1(e.target.value)} placeholder="부담임용 새 비밀번호" className="w-full p-3 border rounded-xl" />
+            <input type="password" value={subPin2} onChange={e=>setSubPin2(e.target.value)} placeholder="비밀번호 확인" className="w-full p-3 border rounded-xl" />
+            <button className="w-full p-3 bg-blue-600 text-white rounded-xl font-bold">발급/변경</button>
+          </form>
         </div>
-      </div>
-    </div>
-  );
-}
+      );
+    }
 
-// 데이터 없을 때 빈 상태 컴포넌트
-function EmptyState({ message }) {
-  return (
-    <div className="h-full flex flex-col items-center justify-center text-gray-400">
-      <Users size={48} className="mb-4 text-gray-300" />
-      <p>{message}</p>
-    </div>
-  );
-}
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
