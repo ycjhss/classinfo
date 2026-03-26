@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>온라인 학생 자기소개서 (구글시트)</title>
+  
+  <!-- 스타일 (Tailwind CSS) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- JSX 변환용 Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .smooth-scroll { -webkit-overflow-scrolling: touch; }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // ==========================================
+    // 💡 [구글 시트 주소 입력 영역] 💡
+    // 구글 앱스 스크립트에서 배포 후 받은 웹 앱 URL을 아래 따옴표 안에 넣으세요.
+    // ==========================================
+    const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzF8Q-S1Kpj_buKC0twg9ffMV-gToHIUMdX4Yb5Ryg68KIwGzEIcsM146BHbhV1Crk/exec";
+
+    // 선생님/부담임 선생님 로그인 비밀번호 (구글 시트 버전에서는 여기서 직접 변경합니다)
+    const TEACHER_PIN = "1234";
+
+    // --- 데이터 스키마 및 문항 정의 ---
+    const FORM_FIELDS = [
+      { id: 'name', label: '이름', category: '인적사항', placeholder: '홍길동', type: 'text' },
+      { id: 'contact', label: '내 연락처 (휴대폰)', category: '인적사항', placeholder: '010-0000-0000', type: 'text' },
+      { id: 'emergency', label: '보호자 연락처 (비상연락망)', category: '인적사항', placeholder: '010-0000-0000 (어머니)', type: 'text' },
+      { id: 'friends', label: '교우 관계 (희망 짝꿍 / 피하고 싶은 친구)', category: '인적사항', placeholder: '우리 반에 친한 친구가 있는지, 혹은 꼭 떨어져 앉고 싶은 친구가 있다면 살짝 적어주세요. (비밀보장)', type: 'textarea' },
+
+      { id: 'family', label: '가족 관계 및 가정 분위기', category: '가정환경', placeholder: '가족 구성원, 부모님과의 친밀도, 집안 분위기 등을 자유롭게 적어주세요.', type: 'textarea' },
+      { id: 'support', label: '학교 생활 지원 필요 여부', category: '가정환경', placeholder: '학교 생활과 관련하여 선생님의 특별한 배려나 지원(건강, 학습, 기타 등)이 필요한 부분이 있다면 편하게 적어주세요.', type: 'textarea' },
+
+      { id: 'mbti', label: '나의 MBTI와 실제 성격', category: '자기이해', placeholder: 'MBTI가 무엇인가요? 본인이 생각하는 실제 성격과 비슷한가요?', type: 'text' },
+      { id: 'strengths', label: '남보다 잘할 수 있는 것 (장점)', category: '자기이해', placeholder: '본인의 특기나 장점, 자랑거리를 적어주세요!', type: 'textarea' },
+      { id: 'weaknesses', label: '정말 고치고 싶은 점 / 나의 고민', category: '자기이해', placeholder: '이것만은 고치고 싶다 하는 부분이나 요즘 가장 큰 고민은 무엇인가요?', type: 'textarea' },
+
+      { id: 'health', label: '건강 상태 및 알레르기', category: '생활습관', placeholder: '수업 중 배려가 필요한 질환이나 급식 알레르기가 있다면 꼭 적어주세요.', type: 'textarea' },
+      { id: 'study', label: '방과 후 학습 계획', category: '생활습관', placeholder: '하교 후 주로 어디서 공부하나요? (학원, 과외, 인강, 스터디카페, 야간자율학습 등)', type: 'textarea' },
+
+      { id: 'club', label: '관심 있는 동아리 및 활동', category: '진로 및 학업', placeholder: '고등학교에서 가입하고 싶은 동아리나 관심 있는 활동 분야가 있나요?', type: 'textarea' },
+      { id: 'future', label: '장래 희망과 희망 전공', category: '진로 및 학업', placeholder: '현재 생각하고 있는 희망 직업이나 대학교 전공이 있다면 적어주세요.', type: 'textarea' },
+      { id: 'subjects', label: '좋아하는 / 어려워하는 과목', category: '진로 및 학업', placeholder: '좋아하는 과목과 이유, 특히 어려워하는 과목을 적어주세요.', type: 'textarea' },
+
+      { id: 'toTeacher', label: '선생님께 바라는 점 / 기대하는 점', category: '소통', placeholder: '올해 우리 반이 이런 반이 되었으면 좋겠다, 담임 선생님께 바라는 점 등', type: 'textarea' },
+      { id: 'secret', label: '선생님께만 털어놓는 비밀 이야기', category: '소통', placeholder: '선생님이 꼭 알았으면 하는 내용이나 개인적인 사정 (절대 비밀 보장)', type: 'textarea' }
+    ];
+
+    const CATEGORIES = ['인적사항', '가정환경', '자기이해', '생활습관', '진로 및 학업', '소통'];
+
+    // 연락처 자동 포맷 함수
+    const formatPhoneNumberDisplay = (text) => {
+      if (typeof text !== 'string') return text;
+      if (!text) return "";
+      const phoneRegex = /(01[016789])[- .]?([0-9]{3,4})[- .]?([0-9]{4})/g;
+      return text.replace(phoneRegex, (match, p1, p2, p3) => `${p1}-${p2}-${p3} / ${p1}${p2}${p3}`);
+    };
+
+    const formatEmergencyContact = (text, studentName) => {
+      if (typeof text !== 'string' || !text) return "";
+      let formatted = formatPhoneNumberDisplay(text);
+      if (studentName && !formatted.includes(studentName)) {
+        formatted = formatted.replace(/(어머니|엄마|아버지|아빠|할머니|할아버지|형|누나|오빠|언니)/g, `${studentName} $1`);
+      }
+      return formatted;
+    };
+
+    const extractPhoneAndText = (text, studentName) => {
+      if (typeof text !== 'string' || !text) return { phoneHyphen: "미작성", phoneNoHyphen: "미작성", relation: "" };
+      const phoneRegex = /(01[016789])[- .]?([0-9]{3,4})[- .]?([0-9]{4})/g;
+      let hyphenArr = [], noHyphenArr = [];
+      let textPart = text.replace(phoneRegex, (match, p1, p2, p3) => {
+        hyphenArr.push(`${p1}-${p2}-${p3}`);
+        noHyphenArr.push(`${p1}${p2}${p3}`);
+        return '';
+      });
+      let relationStr = textPart.replace(/[()\[\]]/g, '').trim();
+      if (studentName && relationStr) {
+        relationStr = relationStr.replace(/(어머니|엄마|아버지|아빠|할머니|할아버지|형|누나|오빠|언니)/g, `${studentName} $1`);
+      }
+      return { 
+        phoneHyphen: hyphenArr.length > 0 ? hyphenArr.join(', ') : "번호 없음", 
+        phoneNoHyphen: noHyphenArr.length > 0 ? noHyphenArr.join(', ') : "번호 없음", 
+        relation: relationStr 
+      };
+    };
+
+    export default function App() {
+      const [view, setView] = useState('select');
+      const [students, setStudents] = useState([]);
+      const [isSubmitting, setIsSubmitting] = useState(false);
+      const [isLoadingData, setIsLoadingData] = useState(false);
+
+      const currentUrl = typeof window !== 'undefined' ? window.location.href : 'https://example.com';
+      const isMockMode = GOOGLE_SCRIPT_URL.includes('여기에_구글_앱스_스크립트_URL');
+
+      // 데이터 불러오기 (GET)
+      const fetchStudents = async () => {
+        if (isMockMode) return;
+        setIsLoadingData(true);
+        try {
+          const response = await fetch(GOOGLE_SCRIPT_URL);
+          const data = await response.json();
+          data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          setStudents(data);
+        } catch (error) {
+          console.error("데이터 불러오기 오류:", error);
+          alert("구글 시트에서 데이터를 불러오는데 실패했습니다.");
+        } finally {
+          setIsLoadingData(false);
+        }
+      };
+
+      useEffect(() => {
+        if (view === 'teacher' && !isMockMode) {
+          fetchStudents();
+        }
+      }, [view]);
+
+      // 데이터 보내기 (POST)
+      const sendToGoogleSheet = async (action, payload) => {
+        if (isMockMode) {
+          alert("⚠️ 현재 임시 주소입니다. GOOGLE_SCRIPT_URL에 구글 앱스 스크립트 주소를 넣어주세요.");
+          return false;
+        }
+        try {
+          await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ action: action, data: payload })
+          });
+          return true;
+        } catch (error) {
+          console.error("저장 오류:", error);
+          return false;
+        }
+      };
+
+      const handleStudentSubmit = async (data) => {
+        setIsSubmitting(true);
+        const newStudent = { id: Date.now().toString(), createdAt: new Date().toLocaleString(), ...data };
+        const success = await sendToGoogleSheet('create', newStudent);
+        
+        if (success) {
+          setView('thankyou');
+        } else if (!isMockMode) {
+          alert("저장 중 오류가 발생했습니다. 구글 시트 연결을 확인해주세요.");
+        }
+        setIsSubmitting(false);
+      };
+
+      const handleStudentUpdate = async (updatedData) => {
+        const success = await sendToGoogleSheet('update', updatedData);
+        if (success) fetchStudents();
+        else if (!isMockMode) alert("수정에 실패했습니다.");
+      };
+
+      const handleStudentDelete = async (idToDelete) => {
+        const success = await sendToGoogleSheet('delete', { id: idToDelete });
+        if (success) fetchStudents();
+        else if (!isMockMode) alert("삭제에 실패했습니다.");
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-50 text-gray-800 font-sans relative">
+          {isMockMode && (
+            <div className="absolute top-0 w-full bg-amber-100 text-amber-800 text-center py-2 text-xs sm:text-sm font-bold z-50 shadow-sm">
+              ⚠️ 정상적인 저장을 위해 코드 내에 GOOGLE_SCRIPT_URL 주소를 입력해주세요.
+            </div>
+          )}
+          
+          {view === 'select' && <RoleSelection setView={setView} teacherPin={TEACHER_PIN} />}
+          {view === 'student' && <StudentForm onSubmit={handleStudentSubmit} onBack={() => setView('select')} isSubmitting={isSubmitting} />}
+          {view === 'thankyou' && <ThankYouView onHome={() => setView('select')} />}
+          {view === 'teacher' && 
+            <TeacherDashboard 
+              students={students} 
+              onBack={() => setView('select')} 
+              currentUrl={currentUrl} 
+              onUpdate={handleStudentUpdate}
+              onDelete={handleStudentDelete}
+              onRefresh={fetchStudents}
+              isLoading={isLoadingData}
+            />
+          }
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 역할 선택 화면
+    // ==========================================
+    function RoleSelection({ setView, teacherPin }) {
+      const [showPinModal, setShowPinModal] = useState(false);
+      const [pin, setPin] = useState('');
+      const [pinError, setPinError] = useState('');
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        const inputPin = String(pin).trim();
+        const mainPin = String(teacherPin).trim();
+
+        if (inputPin === mainPin) {
+          setView('teacher');
+        } else {
+          setPinError('비밀번호가 일치하지 않습니다.');
+        }
+      };
+
+      return (
+        <div className="flex flex-col items-center justify-center min-h-screen px-4 py-8 relative">
+          <div className="text-center mb-10 mt-8">
+            <h1 className="text-3xl font-bold text-indigo-700 mb-3">온라인 자기소개서</h1>
+            <p className="text-gray-500 font-medium">데이터가 구글 스프레드시트에 자동으로 정리됩니다.</p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
+            <button onClick={() => setView('student')} className="flex flex-col items-center justify-center p-10 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-indigo-400 transition-all">
+              <div className="text-5xl mb-4">🧑‍🎓</div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">학생입니다</h2>
+              <p className="text-sm text-gray-500">나의 자기소개서를 제출합니다.</p>
+            </button>
+            <button onClick={() => setShowPinModal(true)} className="flex flex-col items-center justify-center p-10 bg-white rounded-2xl shadow-sm border-2 border-transparent hover:border-emerald-400 transition-all">
+              <div className="text-5xl mb-4">👨‍🏫</div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">선생님입니다</h2>
+              <p className="text-sm text-gray-500">학생들의 데이터를 관리합니다.</p>
+            </button>
+          </div>
+
+          {showPinModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-3xl shadow-xl w-full max-w-sm p-8">
+                <div className="text-4xl text-center mb-4">🔒</div>
+                <h3 className="text-2xl font-bold text-center mb-6">선생님 확인</h3>
+                <form onSubmit={handleLogin}>
+                  <input type="password" autoFocus value={pin} onChange={(e) => {setPin(e.target.value); setPinError('');}} placeholder="비밀번호 입력" className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-emerald-500 outline-none mb-2 text-center text-xl tracking-widest font-mono" />
+                  {pinError && <p className="text-red-500 text-xs text-center mb-4">{pinError}</p>}
+                  <div className="flex space-x-3 mt-4">
+                    <button type="button" onClick={() => {setShowPinModal(false); setPin('');}} className="flex-1 py-3 bg-gray-100 rounded-xl font-medium hover:bg-gray-200">취소</button>
+                    <button type="submit" className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-medium hover:bg-emerald-700">확인</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 학생 폼
+    // ==========================================
+    function StudentForm({ onSubmit, onBack, isSubmitting }) {
+      const [formData, setFormData] = useState({});
+
+      const handleChange = (e) => {
+        setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+      };
+
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-8 mt-6">
+          <button onClick={onBack} className="flex items-center text-gray-500 hover:text-indigo-600 mb-6 font-medium">⬅️ 처음으로</button>
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="bg-indigo-600 px-6 py-8 text-white text-center">
+              <h2 className="text-2xl font-bold mb-2">나를 소개합니다 👋</h2>
+              <p className="text-indigo-100 text-sm">편안하게 작성해 주세요!</p>
+            </div>
+            <form onSubmit={(e) => { e.preventDefault(); onSubmit(formData); }} className="p-6 sm:p-10 space-y-10">
+              {CATEGORIES.map(category => (
+                <div key={category} className="space-y-5">
+                  <h3 className="text-lg font-bold text-gray-800 border-b pb-2 mb-4"><span className="text-indigo-500 mr-2">|</span>{category}</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {FORM_FIELDS.filter(f => f.category === category).map((field) => (
+                      <div key={field.id} className={field.type === 'textarea' ? 'md:col-span-2' : ''}>
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">{field.label}</label>
+                        {field.type === 'textarea' ? (
+                          <textarea name={field.id} required placeholder={field.placeholder} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none h-28 resize-none"></textarea>
+                        ) : (
+                          <input type={field.type} name={field.id} required placeholder={field.placeholder} onChange={handleChange} className="w-full px-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-indigo-500 outline-none" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div className="pt-6">
+                <button type="submit" disabled={isSubmitting} className={`w-full bg-indigo-600 text-white font-bold py-4 rounded-xl shadow-lg hover:bg-indigo-700 ${isSubmitting ? 'opacity-70' : ''}`}>
+                  {isSubmitting ? '구글 시트에 저장 중...' : '선생님께 제출하기'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    function ThankYouView({ onHome }) {
+      return (
+        <div className="flex items-center justify-center min-h-screen px-4">
+          <div className="bg-white p-10 rounded-2xl shadow-sm text-center max-w-md w-full">
+            <div className="text-6xl mb-6">✅</div>
+            <h2 className="text-2xl font-bold mb-2">제출 완료!</h2>
+            <p className="text-gray-500 mb-8">구글 스프레드시트에 안전하게 저장되었습니다.</p>
+            <button onClick={onHome} className="w-full bg-gray-100 hover:bg-gray-200 py-3 rounded-xl font-bold">처음 화면으로</button>
+          </div>
+        </div>
+      );
+    }
+
+    // ==========================================
+    // 선생님 대시보드
+    // ==========================================
+    function TeacherDashboard({ students, onBack, currentUrl, onUpdate, onDelete, onRefresh, isLoading }) {
+      const [activeTab, setActiveTab] = useState('byStudent');
+      return (
+        <div className="flex flex-col h-screen bg-gray-100">
+          <header className="bg-emerald-700 text-white flex-none shadow-md">
+            <div className="max-w-7xl mx-auto px-4 py-2 sm:h-16 flex flex-col sm:flex-row items-center justify-between">
+              <div className="flex items-center space-x-3 mb-2 sm:mb-0">
+                <button onClick={onBack} className="text-xl hover:bg-emerald-600 rounded-full p-1">⬅️</button>
+                <h1 className="text-lg font-bold">👨‍🏫 구글시트 관리 <span className="ml-2 text-xs bg-emerald-800 px-2 py-1 rounded-full">{students.length}명</span></h1>
+                <button onClick={onRefresh} className="ml-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold flex items-center">
+                  {isLoading ? '⏳ 불러오는 중...' : '🔄 새로고침'}
+                </button>
+              </div>
+              <div className="flex space-x-1 bg-emerald-800 p-1 rounded-lg text-sm hide-scrollbar overflow-x-auto">
+                {['byStudent', 'byQuestion', 'qr'].map(tab => {
+                  const titles = { byStudent: '학생별', byQuestion: '문항별', qr: 'QR배포' };
+                  const emojis = { byStudent: '👤', byQuestion: '📋', qr: '📱' };
+                  return (
+                    <button key={tab} onClick={() => setActiveTab(tab)} className={`px-3 py-1.5 rounded-md whitespace-nowrap ${activeTab === tab ? 'bg-white text-emerald-800 font-bold' : 'text-emerald-100 hover:bg-emerald-600'}`}>
+                      {emojis[tab]} {titles[tab]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </header>
+          <main className="flex-1 overflow-hidden">
+            {activeTab === 'byStudent' && <ViewByStudent students={students} onUpdate={onUpdate} onDelete={onDelete} />}
+            {activeTab === 'byQuestion' && <ViewByQuestion students={students} />}
+            {activeTab === 'qr' && <ViewQRCode url={currentUrl} />}
+          </main>
+        </div>
+      );
+    }
+
+    // --- 교사: 학생별 보기 ---
+    function ViewByStudent({ students, onUpdate, onDelete }) {
+      const [selId, setSelId] = useState(null); 
+      const [isEdit, setIsEdit] = useState(false);
+      const [editData, setEditData] = useState({});
+      const [isSaving, setIsSaving] = useState(false);
+
+      const student = students.find(s => s.id === selId);
+
+      useEffect(() => { setIsEdit(false); }, [selId]);
+
+      const handleSave = async () => {
+        setIsSaving(true);
+        await onUpdate(editData);
+        setIsEdit(false);
+        setIsSaving(false);
+      };
+
+      const handleDel = async () => {
+        if(confirm(`${student.name} 학생의 데이터를 구글 시트에서 삭제하시겠습니까?`)) {
+          await onDelete(selId);
+          setSelId(null);
+        }
+      };
+
+      const escapeCsv = (str) => {
+        let s = String(str).replace(/"/g, '""');
+        if (s.includes(',') || s.includes('\n') || s.includes('"')) s = `"${s}"`;
+        return s;
+      };
+
+      return (
+        <div className="flex flex-col md:flex-row h-full">
+          <div className={`w-full md:w-64 bg-white border-r flex-none overflow-y-auto smooth-scroll ${selId ? 'hidden md:flex md:flex-col' : 'flex flex-col'}`}>
+            {students.map(s => (
+              <button key={s.id} onClick={() => setSelId(s.id)} className={`w-full text-left p-4 border-b flex justify-between items-center ${selId === s.id ? 'bg-emerald-50 border-emerald-200' : 'hover:bg-gray-50'}`}>
+                <div className={`font-bold ${selId === s.id ? 'text-emerald-700' : 'text-gray-800'}`}>{s.name}</div>
+                <div className="text-gray-300 md:hidden">❯</div>
+              </button>
+            ))}
+          </div>
+
+          <div className={`flex-1 overflow-y-auto bg-gray-50 p-4 sm:p-6 smooth-scroll ${!selId ? 'hidden md:block' : 'block'}`}>
+            {!student ? <div className="h-full hidden md:flex items-center justify-center text-gray-400">왼쪽에서 학생을 선택해주세요.</div> : (
+              <div className="max-w-4xl mx-auto space-y-4">
+                <button onClick={() => setSelId(null)} className="md:hidden mb-2 px-3 py-2 bg-white border rounded-lg text-sm">⬅️ 목록으로</button>
+                <div className="bg-white p-6 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border">
+                  {isEdit ? (
+                    <input className="text-2xl font-bold border-b-2 border-emerald-500 outline-none w-full sm:w-48 bg-gray-50 p-1" value={editData.name || ''} onChange={e=>setEditData({...editData, name: e.target.value})} placeholder="이름" />
+                  ) : (<h2 className="text-2xl font-bold inline">{student.name}</h2>)}
+                  
+                  <div className="flex gap-2 w-full sm:w-auto">
+                    {isEdit ? (
+                      <><button onClick={()=>setIsEdit(false)} className="px-4 py-2 bg-gray-100 rounded-lg text-sm font-medium">취소</button>
+                      <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium">{isSaving ? '저장 중...' : '저장'}</button></>
+                    ) : (
+                      <><button onClick={()=>{setEditData({...student}); setIsEdit(true);}} className="px-3 py-2 bg-blue-50 text-blue-700 rounded-lg text-sm font-bold border">✏️ 수정</button>
+                      <button onClick={handleDel} className="px-3 py-2 bg-red-50 text-red-700 rounded-lg text-sm font-bold border">🗑️ 삭제</button></>
+                    )}
+                  </div>
+                </div>
+
+                <div className="bg-amber-50 p-6 rounded-xl border border-amber-200">
+                  <h3 className="font-bold text-amber-800 mb-2 text-sm">✏️ 교사 상담 메모 (비공개)</h3>
+                  {isEdit ? <textarea value={editData.teacherNote||''} onChange={e=>setEditData({...editData, teacherNote: e.target.value})} className="w-full p-3 rounded-lg border outline-none text-sm" rows="3"></textarea> : <div className="bg-white p-4 rounded-lg text-sm whitespace-pre-wrap">{student.teacherNote || <span className="text-gray-400">기록 없음</span>}</div>}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {CATEGORIES.map(category => (
+                    <div key={category} className={`bg-white p-6 rounded-xl border ${category==='소통'?'md:col-span-2':''}`}>
+                      <h3 className="font-bold text-emerald-700 mb-4 border-b pb-2 text-sm">{category}</h3>
+                      <div className="space-y-4">
+                        {FORM_FIELDS.filter(f=>f.category===category).map(f => (
+                          <div key={f.id} className="bg-gray-50 p-3 rounded-lg border">
+                            <div className="text-xs font-bold text-gray-500 mb-1">{f.label}</div>
+                            {isEdit ? ( f.type === 'textarea' ? <textarea value={editData[f.id]||''} onChange={e=>setEditData({...editData, [f.id]:e.target.value})} className="w-full p-2 border rounded outline-none text-sm" rows="2" /> : <input value={editData[f.id]||''} onChange={e=>setEditData({...editData, [f.id]:e.target.value})} className="w-full p-2 border rounded outline-none text-sm" /> ) : (
+                              <div className="text-sm whitespace-pre-wrap">{(f.id === 'emergency') ? (formatEmergencyContact(student[f.id], student.name) || "미작성") : (f.id === 'contact') ? (formatPhoneNumberDisplay(student[f.id]) || "미작성") : (student[f.id] || "미작성")}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // --- 교사: 문항별 보기 ---
+    function ViewByQuestion({ students }) {
+      const [selField, setSelField] = useState(FORM_FIELDS[15].id); // 비밀고민
+      return (
+        <div className="h-full flex flex-col p-6 max-w-5xl mx-auto">
+          <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 flex gap-4 items-center">
+            <select value={selField} onChange={e=>setSelField(e.target.value)} className="flex-1 p-2 border rounded outline-none font-bold">
+              {FORM_FIELDS.map(f => <option key={f.id} value={f.id}>[{f.category}] {f.label}</option>)}
+            </select>
+          </div>
+          <div className="flex-1 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4">
+            {students.length === 0 && <div className="col-span-full text-center py-10 text-gray-400">데이터가 없습니다.</div>}
+            {students.map(s => (
+              <div key={s.id} className="bg-white p-5 rounded-xl border">
+                <div className="font-bold text-emerald-800 mb-2 border-b pb-2">{s.name}</div>
+                <div className="text-sm whitespace-pre-wrap">{(selField === 'emergency') ? formatEmergencyContact(s[selField], s.name) : (selField === 'contact') ? formatPhoneNumberDisplay(s[selField]) : s[selField]}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    // --- 교사: QR 코드 ---
+    function ViewQRCode({ url }) {
+      const [customUrl, setCustomUrl] = useState(url.split('?')[0]);
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(customUrl)}`;
+      return (
+        <div className="h-full flex items-center justify-center p-6">
+          <div className="bg-white p-8 rounded-3xl shadow-lg text-center max-w-md w-full border">
+            <h2 className="text-2xl font-bold mb-6">구글 시트 버전 QR</h2>
+            <img src={qrUrl} className="mx-auto w-48 h-48 mb-6" alt="QR" />
+            <input value={customUrl} onChange={e=>setCustomUrl(e.target.value)} className="w-full p-3 border rounded-lg mb-2 text-sm" />
+            <p className="text-xs text-gray-500">정식 주소(예: sheet.html 포함)로 수정하면 QR이 변경됩니다.</p>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
